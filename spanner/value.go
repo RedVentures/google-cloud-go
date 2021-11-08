@@ -18,12 +18,16 @@ package spanner
 
 import (
 	"bytes"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -49,11 +53,54 @@ const (
 	NumericScaleDigits = 9
 )
 
+// LossOfPrecisionHandlingOption describes the option to deal with loss of
+// precision on numeric values.
+type LossOfPrecisionHandlingOption int
+
+const (
+	// NumericRound automatically rounds a numeric value that has a higher
+	// precision than what is supported by Spanner, e.g., 0.1234567895 rounds
+	// to 0.123456790.
+	NumericRound LossOfPrecisionHandlingOption = iota
+	// NumericError returns an error for numeric values that have a higher
+	// precision than what is supported by Spanner. E.g. the client returns an
+	// error if the application tries to insert the value 0.1234567895.
+	NumericError
+)
+
+// LossOfPrecisionHandling configures how to deal with loss of precision on
+// numeric values. The value of this configuration is global and will be used
+// for all Spanner clients.
+var LossOfPrecisionHandling LossOfPrecisionHandlingOption
+
 // NumericString returns a string representing a *big.Rat in a format compatible
 // with Spanner SQL. It returns a floating-point literal with 9 digits after the
 // decimal point.
 func NumericString(r *big.Rat) string {
 	return r.FloatString(NumericScaleDigits)
+}
+
+// validateNumeric returns nil if there are no errors. It will return an error
+// when the numeric number is not valid.
+func validateNumeric(r *big.Rat) error {
+	if r == nil {
+		return nil
+	}
+	// Add one more digit to the scale component to find out if there are more
+	// digits than required.
+	strRep := r.FloatString(NumericScaleDigits + 1)
+	strRep = strings.TrimRight(strRep, "0")
+	strRep = strings.TrimLeft(strRep, "-")
+	s := strings.Split(strRep, ".")
+	whole := s[0]
+	scale := s[1]
+	if len(scale) > NumericScaleDigits {
+		return fmt.Errorf("max scale for a numeric is %d. The requested numeric has more", NumericScaleDigits)
+	}
+	if len(whole) > NumericPrecisionDigits-NumericScaleDigits {
+		return fmt.Errorf("max precision for the whole component of a numeric is %d. The requested numeric has a whole component with precision %d", NumericPrecisionDigits-NumericScaleDigits, len(whole))
+	}
+	return nil
 }
 
 var (
@@ -165,6 +212,43 @@ func (n *NullInt64) UnmarshalJSON(payload []byte) error {
 	return nil
 }
 
+// Value implements the driver.Valuer interface.
+func (n NullInt64) Value() (driver.Value, error) {
+	if n.IsNull() {
+		return nil, nil
+	}
+	return n.Int64, nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (n *NullInt64) Scan(value interface{}) error {
+	if value == nil {
+		n.Int64, n.Valid = 0, false
+		return nil
+	}
+	n.Valid = true
+	switch p := value.(type) {
+	default:
+		return spannerErrorf(codes.InvalidArgument, "invalid type for NullInt64: %v", p)
+	case *int64:
+		n.Int64 = *p
+	case int64:
+		n.Int64 = p
+	case *NullInt64:
+		n.Int64 = p.Int64
+		n.Valid = p.Valid
+	case NullInt64:
+		n.Int64 = p.Int64
+		n.Valid = p.Valid
+	}
+	return nil
+}
+
+// GormDataType is used by gorm to determine the default data type for fields with this type.
+func (n NullInt64) GormDataType() string {
+	return "INT64"
+}
+
 // NullString represents a Cloud Spanner STRING that may be NULL.
 type NullString struct {
 	StringVal string // StringVal contains the value when it is non-NULL, and an empty string when NULL.
@@ -209,6 +293,43 @@ func (n *NullString) UnmarshalJSON(payload []byte) error {
 	n.StringVal = string(payload)
 	n.Valid = true
 	return nil
+}
+
+// Value implements the driver.Valuer interface.
+func (n NullString) Value() (driver.Value, error) {
+	if n.IsNull() {
+		return nil, nil
+	}
+	return n.StringVal, nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (n *NullString) Scan(value interface{}) error {
+	if value == nil {
+		n.StringVal, n.Valid = "", false
+		return nil
+	}
+	n.Valid = true
+	switch p := value.(type) {
+	default:
+		return spannerErrorf(codes.InvalidArgument, "invalid type for NullString: %v", p)
+	case *string:
+		n.StringVal = *p
+	case string:
+		n.StringVal = p
+	case *NullString:
+		n.StringVal = p.StringVal
+		n.Valid = p.Valid
+	case NullString:
+		n.StringVal = p.StringVal
+		n.Valid = p.Valid
+	}
+	return nil
+}
+
+// GormDataType is used by gorm to determine the default data type for fields with this type.
+func (n NullString) GormDataType() string {
+	return "STRING(MAX)"
 }
 
 // NullFloat64 represents a Cloud Spanner FLOAT64 that may be NULL.
@@ -257,6 +378,43 @@ func (n *NullFloat64) UnmarshalJSON(payload []byte) error {
 	return nil
 }
 
+// Value implements the driver.Valuer interface.
+func (n NullFloat64) Value() (driver.Value, error) {
+	if n.IsNull() {
+		return nil, nil
+	}
+	return n.Float64, nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (n *NullFloat64) Scan(value interface{}) error {
+	if value == nil {
+		n.Float64, n.Valid = 0, false
+		return nil
+	}
+	n.Valid = true
+	switch p := value.(type) {
+	default:
+		return spannerErrorf(codes.InvalidArgument, "invalid type for NullFloat64: %v", p)
+	case *float64:
+		n.Float64 = *p
+	case float64:
+		n.Float64 = p
+	case *NullFloat64:
+		n.Float64 = p.Float64
+		n.Valid = p.Valid
+	case NullFloat64:
+		n.Float64 = p.Float64
+		n.Valid = p.Valid
+	}
+	return nil
+}
+
+// GormDataType is used by gorm to determine the default data type for fields with this type.
+func (n NullFloat64) GormDataType() string {
+	return "FLOAT64"
+}
+
 // NullBool represents a Cloud Spanner BOOL that may be NULL.
 type NullBool struct {
 	Bool  bool // Bool contains the value when it is non-NULL, and false when NULL.
@@ -301,6 +459,43 @@ func (n *NullBool) UnmarshalJSON(payload []byte) error {
 	n.Bool = b
 	n.Valid = true
 	return nil
+}
+
+// Value implements the driver.Valuer interface.
+func (n NullBool) Value() (driver.Value, error) {
+	if n.IsNull() {
+		return nil, nil
+	}
+	return n.Bool, nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (n *NullBool) Scan(value interface{}) error {
+	if value == nil {
+		n.Bool, n.Valid = false, false
+		return nil
+	}
+	n.Valid = true
+	switch p := value.(type) {
+	default:
+		return spannerErrorf(codes.InvalidArgument, "invalid type for NullBool: %v", p)
+	case *bool:
+		n.Bool = *p
+	case bool:
+		n.Bool = p
+	case *NullBool:
+		n.Bool = p.Bool
+		n.Valid = p.Valid
+	case NullBool:
+		n.Bool = p.Bool
+		n.Valid = p.Valid
+	}
+	return nil
+}
+
+// GormDataType is used by gorm to determine the default data type for fields with this type.
+func (n NullBool) GormDataType() string {
+	return "BOOL"
 }
 
 // NullTime represents a Cloud Spanner TIMESTAMP that may be null.
@@ -354,6 +549,43 @@ func (n *NullTime) UnmarshalJSON(payload []byte) error {
 	return nil
 }
 
+// Value implements the driver.Valuer interface.
+func (n NullTime) Value() (driver.Value, error) {
+	if n.IsNull() {
+		return nil, nil
+	}
+	return n.Time, nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (n *NullTime) Scan(value interface{}) error {
+	if value == nil {
+		n.Time, n.Valid = time.Time{}, false
+		return nil
+	}
+	n.Valid = true
+	switch p := value.(type) {
+	default:
+		return spannerErrorf(codes.InvalidArgument, "invalid type for NullTime: %v", p)
+	case *time.Time:
+		n.Time = *p
+	case time.Time:
+		n.Time = p
+	case *NullTime:
+		n.Time = p.Time
+		n.Valid = p.Valid
+	case NullTime:
+		n.Time = p.Time
+		n.Valid = p.Valid
+	}
+	return nil
+}
+
+// GormDataType is used by gorm to determine the default data type for fields with this type.
+func (n NullTime) GormDataType() string {
+	return "TIMESTAMP"
+}
+
 // NullDate represents a Cloud Spanner DATE that may be null.
 type NullDate struct {
 	Date  civil.Date // Date contains the value when it is non-NULL, and a zero civil.Date when NULL.
@@ -405,6 +637,43 @@ func (n *NullDate) UnmarshalJSON(payload []byte) error {
 	return nil
 }
 
+// Value implements the driver.Valuer interface.
+func (n NullDate) Value() (driver.Value, error) {
+	if n.IsNull() {
+		return nil, nil
+	}
+	return n.Date, nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (n *NullDate) Scan(value interface{}) error {
+	if value == nil {
+		n.Date, n.Valid = civil.Date{}, false
+		return nil
+	}
+	n.Valid = true
+	switch p := value.(type) {
+	default:
+		return spannerErrorf(codes.InvalidArgument, "invalid type for NullDate: %v", p)
+	case *civil.Date:
+		n.Date = *p
+	case civil.Date:
+		n.Date = p
+	case *NullDate:
+		n.Date = p.Date
+		n.Valid = p.Valid
+	case NullDate:
+		n.Date = p.Date
+		n.Valid = p.Valid
+	}
+	return nil
+}
+
+// GormDataType is used by gorm to determine the default data type for fields with this type.
+func (n NullDate) GormDataType() string {
+	return "DATE"
+}
+
 // NullNumeric represents a Cloud Spanner Numeric that may be NULL.
 type NullNumeric struct {
 	Numeric big.Rat // Numeric contains the value when it is non-NULL, and a zero big.Rat when NULL.
@@ -454,6 +723,106 @@ func (n *NullNumeric) UnmarshalJSON(payload []byte) error {
 	n.Numeric = *val
 	n.Valid = true
 	return nil
+}
+
+// Value implements the driver.Valuer interface.
+func (n NullNumeric) Value() (driver.Value, error) {
+	if n.IsNull() {
+		return nil, nil
+	}
+	return n.Numeric, nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (n *NullNumeric) Scan(value interface{}) error {
+	if value == nil {
+		n.Numeric, n.Valid = big.Rat{}, false
+		return nil
+	}
+	n.Valid = true
+	switch p := value.(type) {
+	default:
+		return spannerErrorf(codes.InvalidArgument, "invalid type for NullNumeric: %v", p)
+	case *big.Rat:
+		n.Numeric = *p
+	case big.Rat:
+		n.Numeric = p
+	case *NullNumeric:
+		n.Numeric = p.Numeric
+		n.Valid = p.Valid
+	case NullNumeric:
+		n.Numeric = p.Numeric
+		n.Valid = p.Valid
+	}
+	return nil
+}
+
+// GormDataType is used by gorm to determine the default data type for fields with this type.
+func (n NullNumeric) GormDataType() string {
+	return "NUMERIC"
+}
+
+// NullJSON represents a Cloud Spanner JSON that may be NULL.
+//
+// This type must always be used when encoding values to a JSON column in Cloud
+// Spanner.
+//
+// NullJSON does not implement the driver.Valuer and sql.Scanner interfaces, as
+// the underlying value can be anything. This means that the type NullJSON must
+// also be used when calling sql.Row#Scan(dest ...interface{}) for a JSON
+// column.
+type NullJSON struct {
+	Value interface{} // Val contains the value when it is non-NULL, and nil when NULL.
+	Valid bool        // Valid is true if Json is not NULL.
+}
+
+// IsNull implements NullableValue.IsNull for NullJSON.
+func (n NullJSON) IsNull() bool {
+	return !n.Valid
+}
+
+// String implements Stringer.String for NullJSON.
+func (n NullJSON) String() string {
+	if !n.Valid {
+		return nullString
+	}
+	b, err := json.Marshal(n.Value)
+	if err != nil {
+		return fmt.Sprintf("error: %v", err)
+	}
+	return fmt.Sprintf("%v", string(b))
+}
+
+// MarshalJSON implements json.Marshaler.MarshalJSON for NullJSON.
+func (n NullJSON) MarshalJSON() ([]byte, error) {
+	if n.Valid {
+		return json.Marshal(n.Value)
+	}
+	return jsonNullBytes, nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler.UnmarshalJSON for NullJSON.
+func (n *NullJSON) UnmarshalJSON(payload []byte) error {
+	if payload == nil {
+		return fmt.Errorf("payload should not be nil")
+	}
+	if bytes.Equal(payload, jsonNullBytes) {
+		n.Valid = false
+		return nil
+	}
+	var v interface{}
+	err := json.Unmarshal(payload, &v)
+	if err != nil {
+		return fmt.Errorf("payload cannot be converted to a struct: got %v, err: %s", string(payload), err)
+	}
+	n.Value = v
+	n.Valid = true
+	return nil
+}
+
+// GormDataType is used by gorm to determine the default data type for fields with this type.
+func (n NullJSON) GormDataType() string {
+	return "JSON"
 }
 
 // NullRow represents a Cloud Spanner STRUCT that may be NULL.
@@ -602,7 +971,12 @@ func decodeValue(v *proto3.Value, t *sppb.Type, ptr interface{}) error {
 			return err
 		}
 		*p = x
-	case *NullString, **string:
+	case *NullString, **string, *sql.NullString:
+		// Most Null* types are automatically supported for both spanner.Null* and sql.Null* types, except for
+		// NullString, and we need to add explicit support for it here. The reason that the other types are
+		// automatically supported is that they use the same field names (e.g. spanner.NullBool and sql.NullBool both
+		// contain the fields Valid and Bool). spanner.NullString has a field StringVal, sql.NullString has a field
+		// String.
 		if p == nil {
 			return errNilDst(p)
 		}
@@ -615,6 +989,8 @@ func decodeValue(v *proto3.Value, t *sppb.Type, ptr interface{}) error {
 				*sp = NullString{}
 			case **string:
 				*sp = nil
+			case *sql.NullString:
+				*sp = sql.NullString{}
 			}
 			break
 		}
@@ -628,6 +1004,9 @@ func decodeValue(v *proto3.Value, t *sppb.Type, ptr interface{}) error {
 			sp.StringVal = x
 		case **string:
 			*sp = &x
+		case *sql.NullString:
+			sp.Valid = true
+			sp.String = x
 		}
 	case *[]NullString, *[]*string:
 		if p == nil {
@@ -1032,6 +1411,59 @@ func decodeValue(v *proto3.Value, t *sppb.Type, ptr interface{}) error {
 			return errUnexpectedNumericStr(x)
 		}
 		*p = *y
+	case *NullJSON:
+		if p == nil {
+			return errNilDst(p)
+		}
+		if code == sppb.TypeCode_ARRAY {
+			if acode != sppb.TypeCode_JSON {
+				return errTypeMismatch(code, acode, ptr)
+			}
+			x, err := getListValue(v)
+			if err != nil {
+				return err
+			}
+			y, err := decodeNullJSONArrayToNullJSON(x)
+			if err != nil {
+				return err
+			}
+			*p = *y
+		} else {
+			if code != sppb.TypeCode_JSON {
+				return errTypeMismatch(code, acode, ptr)
+			}
+			if isNull {
+				*p = NullJSON{}
+				break
+			}
+			x := v.GetStringValue()
+			var y interface{}
+			err := json.Unmarshal([]byte(x), &y)
+			if err != nil {
+				return err
+			}
+			*p = NullJSON{y, true}
+		}
+	case *[]NullJSON:
+		if p == nil {
+			return errNilDst(p)
+		}
+		if acode != sppb.TypeCode_JSON {
+			return errTypeMismatch(code, acode, ptr)
+		}
+		if isNull {
+			*p = nil
+			break
+		}
+		x, err := getListValue(v)
+		if err != nil {
+			return err
+		}
+		y, err := decodeNullJSONArray(x)
+		if err != nil {
+			return err
+		}
+		*p = y
 	case *NullNumeric:
 		if p == nil {
 			return errNilDst(p)
@@ -1402,6 +1834,7 @@ const (
 	spannerTypeNullTime
 	spannerTypeNullDate
 	spannerTypeNullNumeric
+	spannerTypeNullJSON
 	spannerTypeArrayOfNonNullString
 	spannerTypeArrayOfByteArray
 	spannerTypeArrayOfNonNullInt64
@@ -1415,6 +1848,7 @@ const (
 	spannerTypeArrayOfNullBool
 	spannerTypeArrayOfNullFloat64
 	spannerTypeArrayOfNullNumeric
+	spannerTypeArrayOfNullJSON
 	spannerTypeArrayOfNullTime
 	spannerTypeArrayOfNullDate
 )
@@ -1447,6 +1881,7 @@ var typeOfNullFloat64 = reflect.TypeOf(NullFloat64{})
 var typeOfNullTime = reflect.TypeOf(NullTime{})
 var typeOfNullDate = reflect.TypeOf(NullDate{})
 var typeOfNullNumeric = reflect.TypeOf(NullNumeric{})
+var typeOfNullJSON = reflect.TypeOf(NullJSON{})
 
 // getDecodableSpannerType returns the corresponding decodableSpannerType of
 // the given pointer.
@@ -1477,6 +1912,9 @@ func getDecodableSpannerType(ptr interface{}, isPtr bool) decodableSpannerType {
 		t := val.Type()
 		if t.ConvertibleTo(typeOfNullNumeric) {
 			return spannerTypeNullNumeric
+		}
+		if t.ConvertibleTo(typeOfNullJSON) {
+			return spannerTypeNullJSON
 		}
 	case reflect.Struct:
 		t := val.Type()
@@ -1509,6 +1947,9 @@ func getDecodableSpannerType(ptr interface{}, isPtr bool) decodableSpannerType {
 		}
 		if t.ConvertibleTo(typeOfNullNumeric) {
 			return spannerTypeNullNumeric
+		}
+		if t.ConvertibleTo(typeOfNullJSON) {
+			return spannerTypeNullJSON
 		}
 	case reflect.Slice:
 		kind := val.Type().Elem().Kind()
@@ -1561,6 +2002,9 @@ func getDecodableSpannerType(ptr interface{}, isPtr bool) decodableSpannerType {
 			}
 			if t.ConvertibleTo(typeOfNullNumeric) {
 				return spannerTypeArrayOfNullNumeric
+			}
+			if t.ConvertibleTo(typeOfNullJSON) {
+				return spannerTypeArrayOfNullJSON
 			}
 		case reflect.Slice:
 			// The only array-of-array type that is supported is [][]byte.
@@ -1697,6 +2141,21 @@ func (dsc decodableSpannerType) decodeValueToCustomType(v *proto3.Value, t *sppb
 		} else {
 			result = &NullNumeric{*y, true}
 		}
+	case spannerTypeNullJSON:
+		if code != sppb.TypeCode_JSON {
+			return errTypeMismatch(code, acode, ptr)
+		}
+		if isNull {
+			result = &NullJSON{}
+			break
+		}
+		x := v.GetStringValue()
+		var y interface{}
+		err := json.Unmarshal([]byte(x), &y)
+		if err != nil {
+			return err
+		}
+		result = &NullJSON{y, true}
 	case spannerTypeNonNullTime, spannerTypeNullTime:
 		var nt NullTime
 		err := parseNullTime(v, &nt, code, isNull)
@@ -1827,6 +2286,23 @@ func (dsc decodableSpannerType) decodeValueToCustomType(v *proto3.Value, t *sppb
 			return err
 		}
 		y, err := decodeGenericArray(reflect.TypeOf(ptr).Elem(), x, numericType(), "NUMERIC")
+		if err != nil {
+			return err
+		}
+		result = y
+	case spannerTypeArrayOfNullJSON:
+		if acode != sppb.TypeCode_JSON {
+			return errTypeMismatch(code, acode, ptr)
+		}
+		if isNull {
+			ptr = nil
+			return nil
+		}
+		x, err := getListValue(v)
+		if err != nil {
+			return err
+		}
+		y, err := decodeGenericArray(reflect.TypeOf(ptr).Elem(), x, jsonType(), "JSON")
 		if err != nil {
 			return err
 		}
@@ -2194,6 +2670,42 @@ func decodeNullNumericArray(pb *proto3.ListValue) ([]NullNumeric, error) {
 	return a, nil
 }
 
+// decodeNullJSONArray decodes proto3.ListValue pb into a NullJSON slice.
+func decodeNullJSONArray(pb *proto3.ListValue) ([]NullJSON, error) {
+	if pb == nil {
+		return nil, errNilListValue("JSON")
+	}
+	a := make([]NullJSON, len(pb.Values))
+	for i, v := range pb.Values {
+		if err := decodeValue(v, jsonType(), &a[i]); err != nil {
+			return nil, errDecodeArrayElement(i, v, "JSON", err)
+		}
+	}
+	return a, nil
+}
+
+// decodeNullJSONArray decodes proto3.ListValue pb into a NullJSON pointer.
+func decodeNullJSONArrayToNullJSON(pb *proto3.ListValue) (*NullJSON, error) {
+	if pb == nil {
+		return nil, errNilListValue("JSON")
+	}
+	strs := []string{}
+	for _, v := range pb.Values {
+		if _, ok := v.Kind.(*proto3.Value_NullValue); ok {
+			strs = append(strs, "null")
+		} else {
+			strs = append(strs, v.GetStringValue())
+		}
+	}
+	s := fmt.Sprintf("[%s]", strings.Join(strs, ","))
+	var y interface{}
+	err := json.Unmarshal([]byte(s), &y)
+	if err != nil {
+		return nil, err
+	}
+	return &NullJSON{y, true}, nil
+}
+
 // decodeNumericPointerArray decodes proto3.ListValue pb into a *big.Rat slice.
 func decodeNumericPointerArray(pb *proto3.ListValue) ([]*big.Rat, error) {
 	if pb == nil {
@@ -2506,6 +3018,11 @@ func encodeValue(v interface{}) (*proto3.Value, *sppb.Type, error) {
 			return encodeValue(v.StringVal)
 		}
 		pt = stringType()
+	case sql.NullString:
+		if v.Valid {
+			return encodeValue(v.String)
+		}
+		pt = stringType()
 	case []string:
 		if v != nil {
 			pb, err = encodeArray(len(v), func(i int) interface{} { return v[i] })
@@ -2671,6 +3188,15 @@ func encodeValue(v interface{}) (*proto3.Value, *sppb.Type, error) {
 		}
 		pt = listType(floatType())
 	case big.Rat:
+		switch LossOfPrecisionHandling {
+		case NumericError:
+			err = validateNumeric(&v)
+			if err != nil {
+				return nil, nil, err
+			}
+		case NumericRound:
+			// pass
+		}
 		pb.Kind = stringKind(NumericString(&v))
 		pt = numericType()
 	case []big.Rat:
@@ -2694,7 +3220,33 @@ func encodeValue(v interface{}) (*proto3.Value, *sppb.Type, error) {
 			}
 		}
 		pt = listType(numericType())
+	case NullJSON:
+		if v.Valid {
+			b, err := json.Marshal(v.Value)
+			if err != nil {
+				return nil, nil, err
+			}
+			pb.Kind = stringKind(string(b))
+		}
+		return pb, jsonType(), nil
+	case []NullJSON:
+		if v != nil {
+			pb, err = encodeArray(len(v), func(i int) interface{} { return v[i] })
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		pt = listType(jsonType())
 	case *big.Rat:
+		switch LossOfPrecisionHandling {
+		case NumericError:
+			err = validateNumeric(v)
+			if err != nil {
+				return nil, nil, err
+			}
+		case NumericRound:
+			// pass
+		}
 		if v != nil {
 			pb.Kind = stringKind(NumericString(v))
 		}
@@ -2874,6 +3426,8 @@ func convertCustomTypeValue(sourceType decodableSpannerType, v interface{}) (int
 		destination = reflect.Indirect(reflect.New(reflect.TypeOf(big.Rat{})))
 	case spannerTypeNullNumeric:
 		destination = reflect.Indirect(reflect.New(reflect.TypeOf(NullNumeric{})))
+	case spannerTypeNullJSON:
+		destination = reflect.Indirect(reflect.New(reflect.TypeOf(NullJSON{})))
 	case spannerTypeArrayOfNonNullString:
 		if reflect.ValueOf(v).IsNil() {
 			return []string(nil), nil
@@ -2949,6 +3503,11 @@ func convertCustomTypeValue(sourceType decodableSpannerType, v interface{}) (int
 			return []NullNumeric(nil), nil
 		}
 		destination = reflect.MakeSlice(reflect.TypeOf([]NullNumeric{}), reflect.ValueOf(v).Len(), reflect.ValueOf(v).Cap())
+	case spannerTypeArrayOfNullJSON:
+		if reflect.ValueOf(v).IsNil() {
+			return []NullJSON(nil), nil
+		}
+		destination = reflect.MakeSlice(reflect.TypeOf([]NullJSON{}), reflect.ValueOf(v).Len(), reflect.ValueOf(v).Cap())
 	default:
 		// This should not be possible.
 		return nil, fmt.Errorf("unknown decodable type found: %v", sourceType)

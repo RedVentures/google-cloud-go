@@ -20,13 +20,23 @@ import (
 	"runtime"
 	"strings"
 
-	storage "cloud.google.com/go/bigquery/storage/apiv1beta2"
+	storage "cloud.google.com/go/bigquery/storage/apiv1"
+	"cloud.google.com/go/internal/detect"
 	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/option"
-	storagepb "google.golang.org/genproto/googleapis/cloud/bigquery/storage/v1beta2"
+	storagepb "google.golang.org/genproto/googleapis/cloud/bigquery/storage/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
+
+// DetectProjectID is a sentinel value that instructs NewClient to detect the
+// project ID. It is given in place of the projectID argument. NewClient will
+// use the project ID from the given credentials or the default credentials
+// (https://developers.google.com/accounts/docs/application-default-credentials)
+// if no credentials were provided. When providing credentials, not all
+// options will allow NewClient to extract the project ID. Specifically a JWT
+// does not have the project ID encoded.
+const DetectProjectID = "*detect-project-id*"
 
 // Client is a managed BigQuery Storage write client scoped to a single project.
 type Client struct {
@@ -46,6 +56,12 @@ func NewClient(ctx context.Context, projectID string, opts ...option.ClientOptio
 	o = append(o, opts...)
 
 	rawClient, err := storage.NewBigQueryWriteClient(ctx, o...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle project autodetection.
+	projectID, err = detect.ProjectID(ctx, projectID, "", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -82,11 +98,13 @@ func (c *Client) buildManagedStream(ctx context.Context, streamFunc streamClient
 		c:              c,
 		ctx:            ctx,
 		cancel:         cancel,
-		open: func(streamID string) (storagepb.BigQueryWrite_AppendRowsClient, error) {
+		callOptions: []gax.CallOption{
+			gax.WithGRPCOptions(grpc.MaxCallRecvMsgSize(10 * 1024 * 1024)),
+		},
+		open: func(streamID string, opts ...gax.CallOption) (storagepb.BigQueryWrite_AppendRowsClient, error) {
 			arc, err := streamFunc(
 				// Bidi Streaming doesn't append stream ID as request metadata, so we must inject it manually.
-				metadata.AppendToOutgoingContext(ctx, "x-goog-request-params", fmt.Sprintf("write_stream=%s", streamID)),
-				gax.WithGRPCOptions(grpc.MaxCallRecvMsgSize(10*1024*1024)))
+				metadata.AppendToOutgoingContext(ctx, "x-goog-request-params", fmt.Sprintf("write_stream=%s", streamID)))
 			if err != nil {
 				return nil, err
 			}
@@ -126,7 +144,7 @@ func (c *Client) buildManagedStream(ctx context.Context, streamFunc streamClient
 	}
 	if ms.streamSettings != nil {
 		if ms.ctx != nil {
-			ms.ctx = keyContextWithStreamID(ms.ctx, ms.streamSettings.streamID)
+			ms.ctx = keyContextWithTags(ms.ctx, ms.streamSettings.streamID, ms.streamSettings.dataOrigin)
 		}
 		ms.fc = newFlowController(ms.streamSettings.MaxInflightRequests, ms.streamSettings.MaxInflightBytes)
 	} else {
@@ -161,28 +179,24 @@ func (c *Client) validateOptions(ctx context.Context, ms *ManagedStream) error {
 	return nil
 }
 
-// BatchCommit is used to commit one or more PendingStream streams belonging to the same table
-// as a single transaction.  Streams must be finalized before committing.
+// BatchCommitWriteStreams atomically commits a group of PENDING streams that belong to the same
+// parent table.
 //
-// Format of the parentTable is: projects/{project}/datasets/{dataset}/tables/{table} and the utility
-// function TableParentFromStreamName can be used to derive this from a Stream's name.
-//
-// If the returned response contains stream errors, this indicates that the batch commit failed and no data was
-// committed.
-//
-// TODO: currently returns the raw response.  Determine how we want to surface StreamErrors.
-func (c *Client) BatchCommit(ctx context.Context, parentTable string, streamNames []string) (*storagepb.BatchCommitWriteStreamsResponse, error) {
+// Streams must be finalized before commit and cannot be committed multiple
+// times. Once a stream is committed, data in the stream becomes available
+// for read operations.
+func (c *Client) BatchCommitWriteStreams(ctx context.Context, req *storagepb.BatchCommitWriteStreamsRequest, opts ...gax.CallOption) (*storagepb.BatchCommitWriteStreamsResponse, error) {
+	return c.rawClient.BatchCommitWriteStreams(ctx, req, opts...)
+}
 
-	// determine table from first streamName, as all must share the same table.
-	if len(streamNames) <= 0 {
-		return nil, fmt.Errorf("no streamnames provided")
-	}
-
-	req := &storagepb.BatchCommitWriteStreamsRequest{
-		Parent:       TableParentFromStreamName(streamNames[0]),
-		WriteStreams: streamNames,
-	}
-	return c.rawClient.BatchCommitWriteStreams(ctx, req)
+// CreateWriteStream creates a write stream to the given table.
+// Additionally, every table has a special stream named ‘_default’
+// to which data can be written. This stream doesn’t need to be created using
+// CreateWriteStream. It is a stream that can be used simultaneously by any
+// number of clients. Data written to this stream is considered committed as
+// soon as an acknowledgement is received.
+func (c *Client) CreateWriteStream(ctx context.Context, req *storagepb.CreateWriteStreamRequest, opts ...gax.CallOption) (*storagepb.WriteStream, error) {
+	return c.rawClient.CreateWriteStream(ctx, req, opts...)
 }
 
 // getWriteStream returns information about a given write stream.
