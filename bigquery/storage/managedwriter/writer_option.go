@@ -14,7 +14,10 @@
 
 package managedwriter
 
-import "google.golang.org/protobuf/types/descriptorpb"
+import (
+	"github.com/googleapis/gax-go/v2"
+	"google.golang.org/protobuf/types/descriptorpb"
+)
 
 // WriterOption are variadic options used to configure a ManagedStream instance.
 type WriterOption func(*ManagedStream)
@@ -75,5 +78,21 @@ func WithTraceID(traceID string) WriterOption {
 func WithSchemaDescriptor(dp *descriptorpb.DescriptorProto) WriterOption {
 	return func(ms *ManagedStream) {
 		ms.schemaDescriptor = dp
+	}
+}
+
+// WithDataOrigin is used to attach an origin context to the instrumentation metrics
+// emitted by the library.
+func WithDataOrigin(dataOrigin string) WriterOption {
+	return func(ms *ManagedStream) {
+		ms.streamSettings.dataOrigin = dataOrigin
+	}
+}
+
+// WithAppendRowsCallOption is used to supply additional call options to the ManagedStream when
+// it opens the underlying append stream.
+func WithAppendRowsCallOption(o gax.CallOption) WriterOption {
+	return func(ms *ManagedStream) {
+		ms.callOptions = append(ms.callOptions, o)
 	}
 }

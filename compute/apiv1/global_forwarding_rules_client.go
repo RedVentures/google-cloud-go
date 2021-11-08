@@ -26,6 +26,7 @@ import (
 	"net/url"
 
 	gax "github.com/googleapis/gax-go/v2"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
@@ -123,7 +124,7 @@ func (c *GlobalForwardingRulesClient) Patch(ctx context.Context, req *computepb.
 	return c.internalClient.Patch(ctx, req, opts...)
 }
 
-// SetLabels sets the labels on the specified resource. To learn more about labels, read the Labeling Resources documentation.
+// SetLabels sets the labels on the specified resource. To learn more about labels, read the Labeling resources documentation.
 func (c *GlobalForwardingRulesClient) SetLabels(ctx context.Context, req *computepb.SetLabelsGlobalForwardingRuleRequest, opts ...gax.CallOption) (*Operation, error) {
 	return c.internalClient.SetLabels(ctx, req, opts...)
 }
@@ -226,8 +227,8 @@ func (c *globalForwardingRulesRESTClient) Delete(ctx context.Context, req *compu
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -239,7 +240,7 @@ func (c *globalForwardingRulesRESTClient) Delete(ctx context.Context, req *compu
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err
@@ -267,8 +268,8 @@ func (c *globalForwardingRulesRESTClient) Get(ctx context.Context, req *computep
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -279,7 +280,10 @@ func (c *globalForwardingRulesRESTClient) Get(ctx context.Context, req *computep
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	rsp := &computepb.ForwardingRule{}
 
-	return rsp, unm.Unmarshal(buf, rsp)
+	if err := unm.Unmarshal(buf, rsp); err != nil {
+		return nil, maybeUnknownEnum(err)
+	}
+	return rsp, nil
 }
 
 // Insert creates a GlobalForwardingRule resource in the specified project using the data included in the request.
@@ -318,8 +322,8 @@ func (c *globalForwardingRulesRESTClient) Insert(ctx context.Context, req *compu
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -331,7 +335,7 @@ func (c *globalForwardingRulesRESTClient) Insert(ctx context.Context, req *compu
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err
@@ -391,8 +395,8 @@ func (c *globalForwardingRulesRESTClient) List(ctx context.Context, req *compute
 		}
 		defer httpRsp.Body.Close()
 
-		if httpRsp.StatusCode != http.StatusOK {
-			return nil, "", fmt.Errorf(httpRsp.Status)
+		if err = googleapi.CheckResponse(httpRsp); err != nil {
+			return nil, "", err
 		}
 
 		buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -457,8 +461,8 @@ func (c *globalForwardingRulesRESTClient) Patch(ctx context.Context, req *comput
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -470,13 +474,13 @@ func (c *globalForwardingRulesRESTClient) Patch(ctx context.Context, req *comput
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err
 }
 
-// SetLabels sets the labels on the specified resource. To learn more about labels, read the Labeling Resources documentation.
+// SetLabels sets the labels on the specified resource. To learn more about labels, read the Labeling resources documentation.
 func (c *globalForwardingRulesRESTClient) SetLabels(ctx context.Context, req *computepb.SetLabelsGlobalForwardingRuleRequest, opts ...gax.CallOption) (*Operation, error) {
 	m := protojson.MarshalOptions{AllowPartial: true}
 	body := req.GetGlobalSetLabelsRequestResource()
@@ -505,8 +509,8 @@ func (c *globalForwardingRulesRESTClient) SetLabels(ctx context.Context, req *co
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -518,7 +522,7 @@ func (c *globalForwardingRulesRESTClient) SetLabels(ctx context.Context, req *co
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err
@@ -560,8 +564,8 @@ func (c *globalForwardingRulesRESTClient) SetTarget(ctx context.Context, req *co
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -573,7 +577,7 @@ func (c *globalForwardingRulesRESTClient) SetTarget(ctx context.Context, req *co
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err

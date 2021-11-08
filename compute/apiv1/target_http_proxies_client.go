@@ -27,6 +27,7 @@ import (
 	"sort"
 
 	gax "github.com/googleapis/gax-go/v2"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
@@ -124,7 +125,7 @@ func (c *TargetHttpProxiesClient) List(ctx context.Context, req *computepb.ListT
 	return c.internalClient.List(ctx, req, opts...)
 }
 
-// Patch patches the specified TargetHttpProxy resource with the data included in the request. This method supports PATCH semantics and uses JSON merge patch format and processing rules. (== suppress_warning http-rest-shadowed ==)
+// Patch patches the specified TargetHttpProxy resource with the data included in the request. This method supports PATCH semantics and uses JSON merge patch format and processing rules.
 func (c *TargetHttpProxiesClient) Patch(ctx context.Context, req *computepb.PatchTargetHttpProxyRequest, opts ...gax.CallOption) (*Operation, error) {
 	return c.internalClient.Patch(ctx, req, opts...)
 }
@@ -255,8 +256,8 @@ func (c *targetHttpProxiesRESTClient) AggregatedList(ctx context.Context, req *c
 		}
 		defer httpRsp.Body.Close()
 
-		if httpRsp.StatusCode != http.StatusOK {
-			return nil, "", fmt.Errorf(httpRsp.Status)
+		if err = googleapi.CheckResponse(httpRsp); err != nil {
+			return nil, "", err
 		}
 
 		buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -321,8 +322,8 @@ func (c *targetHttpProxiesRESTClient) Delete(ctx context.Context, req *computepb
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -334,7 +335,7 @@ func (c *targetHttpProxiesRESTClient) Delete(ctx context.Context, req *computepb
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err
@@ -362,8 +363,8 @@ func (c *targetHttpProxiesRESTClient) Get(ctx context.Context, req *computepb.Ge
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -374,7 +375,10 @@ func (c *targetHttpProxiesRESTClient) Get(ctx context.Context, req *computepb.Ge
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	rsp := &computepb.TargetHttpProxy{}
 
-	return rsp, unm.Unmarshal(buf, rsp)
+	if err := unm.Unmarshal(buf, rsp); err != nil {
+		return nil, maybeUnknownEnum(err)
+	}
+	return rsp, nil
 }
 
 // Insert creates a TargetHttpProxy resource in the specified project using the data included in the request.
@@ -413,8 +417,8 @@ func (c *targetHttpProxiesRESTClient) Insert(ctx context.Context, req *computepb
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -426,7 +430,7 @@ func (c *targetHttpProxiesRESTClient) Insert(ctx context.Context, req *computepb
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err
@@ -486,8 +490,8 @@ func (c *targetHttpProxiesRESTClient) List(ctx context.Context, req *computepb.L
 		}
 		defer httpRsp.Body.Close()
 
-		if httpRsp.StatusCode != http.StatusOK {
-			return nil, "", fmt.Errorf(httpRsp.Status)
+		if err = googleapi.CheckResponse(httpRsp); err != nil {
+			return nil, "", err
 		}
 
 		buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -516,7 +520,7 @@ func (c *targetHttpProxiesRESTClient) List(ctx context.Context, req *computepb.L
 	return it
 }
 
-// Patch patches the specified TargetHttpProxy resource with the data included in the request. This method supports PATCH semantics and uses JSON merge patch format and processing rules. (== suppress_warning http-rest-shadowed ==)
+// Patch patches the specified TargetHttpProxy resource with the data included in the request. This method supports PATCH semantics and uses JSON merge patch format and processing rules.
 func (c *targetHttpProxiesRESTClient) Patch(ctx context.Context, req *computepb.PatchTargetHttpProxyRequest, opts ...gax.CallOption) (*Operation, error) {
 	m := protojson.MarshalOptions{AllowPartial: true}
 	body := req.GetTargetHttpProxyResource()
@@ -552,8 +556,8 @@ func (c *targetHttpProxiesRESTClient) Patch(ctx context.Context, req *computepb.
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -565,7 +569,7 @@ func (c *targetHttpProxiesRESTClient) Patch(ctx context.Context, req *computepb.
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err
@@ -607,8 +611,8 @@ func (c *targetHttpProxiesRESTClient) SetUrlMap(ctx context.Context, req *comput
 	}
 	defer httpRsp.Body.Close()
 
-	if httpRsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(httpRsp.Status)
+	if err = googleapi.CheckResponse(httpRsp); err != nil {
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(httpRsp.Body)
@@ -620,7 +624,7 @@ func (c *targetHttpProxiesRESTClient) SetUrlMap(ctx context.Context, req *comput
 	rsp := &computepb.Operation{}
 
 	if err := unm.Unmarshal(buf, rsp); err != nil {
-		return nil, err
+		return nil, maybeUnknownEnum(err)
 	}
 	op := &Operation{proto: rsp}
 	return op, err

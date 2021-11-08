@@ -19,6 +19,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/gax-go/v2"
+	"google.golang.org/grpc"
 )
 
 func TestWriterOptions(t *testing.T) {
@@ -79,6 +81,30 @@ func TestWriterOptions(t *testing.T) {
 				ms := &ManagedStream{
 					streamSettings:   defaultStreamSettings(),
 					destinationTable: "foo",
+				}
+				return ms
+			}(),
+		},
+		{
+			desc:    "WithDataOrigin",
+			options: []WriterOption{WithDataOrigin("origin")},
+			want: func() *ManagedStream {
+				ms := &ManagedStream{
+					streamSettings: defaultStreamSettings(),
+				}
+				ms.streamSettings.dataOrigin = "origin"
+				return ms
+			}(),
+		},
+		{
+			desc:    "WithCallOption",
+			options: []WriterOption{WithAppendRowsCallOption(gax.WithGRPCOptions(grpc.MaxCallSendMsgSize(1)))},
+			want: func() *ManagedStream {
+				ms := &ManagedStream{
+					streamSettings: defaultStreamSettings(),
+					callOptions: []gax.CallOption{
+						gax.WithGRPCOptions(grpc.MaxCallSendMsgSize(1)),
+					},
 				}
 				return ms
 			}(),
